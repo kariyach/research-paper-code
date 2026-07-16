@@ -1,0 +1,3 @@
+# Code and Data
+
+This repository contains the data and R code used to generate the figures illustrating the distribution of assets across player categories in the unequal Monopoly game presented in “Designing an Inquiry-Based Bridge Program through Board Games: Making Social Inequality Visible and Tangible” (Japan Association for College and University Education, Hachioji, Tokyo, Japan, June 2026). The materials are shared for educational and illustrative purposes.
