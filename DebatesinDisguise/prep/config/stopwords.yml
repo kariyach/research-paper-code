@@ -1,0 +1,47 @@
+# 共通
+common:
+  address:        # 呼びかけ・議会定型
+    - sir
+    - lords
+    - lord
+    - house
+    - gentleman
+    - gentlemen
+    - honourable
+  generic:        # 汎用頻出語
+    - part
+    - occasion
+    - nothing
+    - something
+    - many
+    - much
+    - well
+    - great
+    - far
+    - less
+  discourse:      # discourse markers
+    - therefore
+    - however
+    - indeed
+    - perhaps
+    - thus
+    - yet
+    - though
+  archaic:        # 古風表現
+    - hath
+    - thy
+    - thou
+    - thee
+    - ye
+  misc:
+    - mr
+    - day
+    - first
+
+# 除外を解除したい語（stopwords("en") 側から外す）
+keep:
+  - not
+  - no
+  - against
+
+

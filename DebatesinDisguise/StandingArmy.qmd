@@ -1,0 +1,762 @@
+---
+title: ""
+subtitle: ""
+title-block-banner: true
+author:
+  - name: 苅谷 千尋
+    orcid: 0009-0008-3085-947X
+    degrees: PhD
+institute: 高大接続コア・センター
+
+# date
+date: today
+date-modified: today
+date-format: "dddd, D, MMM, YYYY"
+
+# format
+format:
+  html:
+    toc: true
+  # pdf:
+  #   pdf-engine: weasyprint
+  #   clear_cache: true
+# Layout
+    # fontsize: 11pt
+    cap-location: bottom
+    page-layout: full
+    # margin-right: 0px
+    # page-layout: article
+    anchor-sections: true
+    smooth-scroll: true
+    urlcolor: SteelBlue # 文字色
+    citecolor: SteelBlue
+    toccolor: SteelBlue
+
+#Language
+    # lang: ja # 言語
+
+# link
+    link-external-newwindow: true
+    link-external-icon: true
+
+execute:
+  freeze: auto
+  echo: false
+  warning: false
+
+# References
+bibliography: /Users/kariyach/Documents/Research/個人研究/bib/refs.bib
+csl: /Users/kariyach/R/R-website/website/csl_en.csl
+citations-hover: true
+---
+
+
+```{r}
+#| label: setup
+#| echo: false
+#| output: false
+
+# パッケージの読み込み -----
+## データ操作 -----
+library(tidyverse)
+library(janitor)
+
+## データ入出力 -----
+library(arrow)
+library(fs)
+
+## グラフ描画（フォント対策）  -----
+library(showtext)
+library(ragg)
+
+## データ確認・要約 -----
+library(skimr)
+
+## 量的テキスト分析 -----
+library(quanteda)
+library(quanteda.textstats)
+library(quanteda.textplots)
+library(tidytext)
+
+## 名前衝突対応 -----
+library(conflicted)
+
+## 日本データ処理 -----
+library(zipangu)
+
+# ggplotのデフォルトテーマ（全プロットに適用） ----
+ggplot2::theme_set(
+  theme_classic() +
+     theme_sub_legend(position   = "bottom") +
+    theme_sub_axis_bottom(
+      title = element_text(size = 11, margin = margin(t = 8)),
+      text  = element_text(size = 8.5)
+    ) +
+    theme_sub_axis_left(
+      title = element_text(size = 11, margin = margin(r = 8)),
+      text  = element_text(size = 11, hjust = 0)
+    ) +
+    theme_sub_legend(
+      position   = "bottom",
+      margin     = margin(t = -4),
+      key.size   = unit(8, "mm")
+    ) +
+    theme_sub_plot(
+      title   = element_text(size = 11),
+      caption = element_text(size = 9)
+    )
+)
+
+# 日本語フォント ----
+font_add(
+  "jp",
+  "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc"
+)
+
+showtext_auto()
+
+# 優先する関数を指定 ----
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(purrr::map)
+conflicts_prefer(purrr::compact())
+conflicts_prefer(quanteda::dictionary)
+
+# ---- 設定 ----
+src_var <- "source_1"
+pos_var <- "stance_on_army"       # 比較に使う docvar の列名
+
+# ---- データの読み込み ----
+obj <- readRDS("prep/prep_standingarmy.rds")
+
+df_army  <- obj$df
+corp     <- obj$corp
+dfm_raw  <- obj$dfm_raw
+dfm_stem <- obj$dfm_stem          # 使っていなければ削除可
+tok_base <- obj$tok_base          # KWIC 用
+tok_pad  <- obj$tok_pad           # collocation 用（使っていなければ削除可）
+
+# ---- 辞書の読み込み ----
+dict_pol <- dictionary(file = "dictionaries/political_vocabulary.yml")
+dict_rhe <- dictionary(file = "dictionaries/rhetoric.yml")
+dicts    <- list(political = dict_pol, rhetoric = dict_rhe)
+
+# ---- 関数 ----
+group_key <- function(x, by = c(src_var, pos_var)) {
+  dv   <- docvars(x)
+  miss <- setdiff(by, names(dv))
+  if (length(miss) > 0) {
+    stop("docvars に列がありません: ", paste(miss, collapse = ", "),
+         "\n利用できる列: ", paste(names(dv), collapse = ", "), call. = FALSE)
+  }
+  do.call(paste, c(as.list(dv[by]), sep = "_"))
+}
+
+split_by_group <- function(x, subset_fn, by = c(src_var, pos_var)) {
+  grp <- group_key(x, by)
+  map(set_names(unique(grp)), \(g) subset_fn(x, subset = grp == g))
+}
+
+run_keyness <- function(dfm_x, var, target, reference = NULL,
+                        min_termfreq = 10, measure = "lr") {
+  g <- docvars(dfm_x, var)
+  if (!is.null(reference)) {
+    dfm_x <- dfm_x[g %in% c(target, reference), ]
+    g <- docvars(dfm_x, var)
+  }
+  dfm_x <- dfm_trim(dfm_x, min_termfreq = min_termfreq)
+  textstat_keyness(dfm_x, target = g == target, measure = measure) |>
+    as_tibble() |>
+    mutate(p_adj = p.adjust(p, method = "BH"))
+}
+
+# ---- グループ別オブジェクト（keyness・KWIC 用）----
+dfm_by  <- split_by_group(dfm_raw,  dfm_subset)     # 例: dfm_by$gm_pro_army
+tok_by  <- split_by_group(tok_base, tokens_subset)  # 例: tok_by$lm_anti_army
+corp_by <- split_by_group(corp,     corpus_subset)
+
+# ---- 辞書用 tokens（ストップワードを除去しない）----
+tok_dict <- tok_base |>
+  tokens_compound(
+    phrase(c("for this reason", "for the reason", "for these reasons", "for which reason",
+             "time of peace", "times of peace")),
+    concatenator = "_"
+  )
+
+# 仮名版の判定
+n_pseudo <- tokens_select(tok_dict, c("lilliput*", "blefuscu*", "senate*")) |> ntoken()
+docvars(tok_dict, "pseudonym") <- n_pseudo > 0
+
+dfm_all <- dfm(tok_dict)          # pseudonym の追加の後に作る
+
+# ---- 文書 × カテゴリの表 ----
+n_tok <- tibble(
+  doc_id    = docnames(tok_dict),
+  n_tokens  = as.numeric(ntoken(tok_dict)),
+  source    = as.character(docvars(tok_dict, src_var)),
+  stance    = docvars(tok_dict, pos_var),
+  pseudonym = docvars(tok_dict, "pseudonym")
+)
+
+df_long <- imap_dfr(dicts, \(d, nm) {
+  convert(dfm(tokens_lookup(tok_dict, d)), to = "data.frame") |>
+    as_tibble() |>
+    pivot_longer(-doc_id, names_to = "category", values_to = "count") |>
+    mutate(dictionary = nm)
+}) |>
+  left_join(n_tok, by = "doc_id") |>
+  mutate(per_1000 = if_else(n_tokens > 0, count / n_tokens * 1000, NA_real_))
+
+# table(docvars(tok_dict, "pseudonym"), docvars(tok_dict, pos_var))
+
+```
+
+# 文書単位の比較
+
+```{r}
+# 文書単位の比較（Wilcoxon。0が多いカテゴリは参考程度）
+
+res_doc <- df_long |>
+  filter(stance %in% c("pro_army", "anti_army")) |>
+  group_by(dictionary, category) |>
+  summarise(
+    median_pro  = median(per_1000[stance == "pro_army"],  na.rm = TRUE),
+    median_anti = median(per_1000[stance == "anti_army"], na.rm = TRUE),
+    p_wilcox = suppressWarnings(
+      wilcox.test(per_1000[stance == "pro_army"], per_1000[stance == "anti_army"],
+                  exact = FALSE)$p.value),
+    .groups = "drop"
+  ) |>
+  mutate(p_adj = p.adjust(p_wilcox, method = "holm"))
+
+res_doc
+
+```
+
+# 確認
+
+```{r}
+cmp <- c("for this reason", "for the reason", "for these reasons", "for which reason",
+         "time of peace", "times of peace")
+
+tok_old <- tok_base |>
+  tokens_compound(phrase(cmp), concatenator = "_") |>
+  tokens(remove_punct = TRUE, remove_symbols = TRUE, remove_numbers = TRUE) |>
+  tokens_tolower()
+
+identical(as.list(tok_old), as.list(tokens_compound(tok_base, phrase(cmp), concatenator = "_")))
+```
+
+
+```{r}
+
+dfm_select(dfm_all, c("public", "publick*", "publicly")) |>
+  textstat_frequency() |> as_tibble() |> select(feature, frequency)
+
+# 他にも旧綴りがないか
+str_subset(featnames(dfm_all), "^(practis|negociat|traffick|armys|enemys|countrys)")
+
+table(docvars(tok_dict, "pseudonym"), docvars(tok_dict, pos_var))
+```
+
+
+```{r}
+
+df_long |>
+  filter(stance %in% c("pro_army", "anti_army")) |>
+  ggplot(aes(per_1000, category, fill = stance)) +
+  geom_boxplot(outlier.alpha = 0.5) +
+  facet_wrap(~ dictionary, scales = "free_y") +
+  labs(x = "1000語あたりの出現数", y = NULL, fill = NULL)
+
+```
+
+
+```{r}
+src_var <- "source_1"
+pos_var <- "stance_on_army"
+
+# source_1 が docvars にない場合
+# docvars(tok_dict, src_var) <- df_army[[src_var]][match(docnames(tok_dict), df_army$doc_id)]
+
+# ---- 0. 文書の内訳（まずここを確認）----
+n_tok <- tibble(
+  doc_id   = docnames(tok_dict),
+  n_tokens = as.numeric(ntoken(tok_dict)),
+  source   = docvars(tok_dict, src_var),
+  stance   = docvars(tok_dict, pos_var),
+  pseudonym = docvars(tok_dict, "pseudonym")
+)
+
+n_tok |>
+  group_by(source, stance) |>
+  summarise(n_docs = n(), n_tokens = sum(n_tokens), n_pseudonym = sum(pseudonym), .groups = "drop")
+
+# ---- 1. 文書 × カテゴリの長い表 ----
+df_long <- imap_dfr(dicts, \(d, nm) {
+  convert(dfm(tokens_lookup(tok_dict, d)), to = "data.frame") |>
+    as_tibble() |>
+    pivot_longer(-doc_id, names_to = "category", values_to = "count") |>
+    mutate(dictionary = nm)
+}) |>
+  left_join(select(n_tok, doc_id, n_tokens, source, stance), by = "doc_id") |>
+  mutate(per_1000 = if_else(n_tokens > 0, count / n_tokens * 1000, NA_real_))
+
+# ---- 2. gm と lm の比較（賛否はプール）----
+res_src <- df_long |>
+  group_by(dictionary, category) |>
+  summarise(
+    rate_gm   = sum(count[source == "gm"]) / sum(n_tokens[source == "gm"]) * 1000,
+    rate_lm   = sum(count[source == "lm"]) / sum(n_tokens[source == "lm"]) * 1000,
+    median_gm = median(per_1000[source == "gm"], na.rm = TRUE),
+    median_lm = median(per_1000[source == "lm"], na.rm = TRUE),
+    p_wilcox  = suppressWarnings(
+      wilcox.test(per_1000[source == "gm"], per_1000[source == "lm"], exact = FALSE)$p.value),
+    .groups = "drop"
+  ) |>
+  mutate(log2_ratio = log2(rate_gm / rate_lm),
+         p_adj = p.adjust(p_wilcox, method = "holm"))
+
+# ---- 3. 各 source の中での pro vs anti ----
+res_stance <- df_long |>
+  filter(stance %in% c("pro_army", "anti_army")) |>
+  group_by(dictionary, category, source) |>
+  summarise(
+    n_pro      = n_distinct(doc_id[stance == "pro_army"]),
+    n_anti     = n_distinct(doc_id[stance == "anti_army"]),
+    rate_pro   = sum(count[stance == "pro_army"])  / sum(n_tokens[stance == "pro_army"])  * 1000,
+    rate_anti  = sum(count[stance == "anti_army"]) / sum(n_tokens[stance == "anti_army"]) * 1000,
+    median_pro  = median(per_1000[stance == "pro_army"],  na.rm = TRUE),
+    median_anti = median(per_1000[stance == "anti_army"], na.rm = TRUE),
+    p_wilcox   = if (n_pro >= 5 && n_anti >= 5) {
+      suppressWarnings(wilcox.test(per_1000[stance == "pro_army"],
+                                   per_1000[stance == "anti_army"], exact = FALSE)$p.value)
+    } else NA_real_,
+    .groups = "drop"
+  ) |>
+  group_by(source) |>
+  mutate(log2_ratio = log2(rate_pro / rate_anti),
+         p_adj = p.adjust(p_wilcox, method = "holm")) |>
+  ungroup()
+
+# ---- 4. 4つのセルを並べた図 ----
+res_cell <- df_long |>
+  filter(stance %in% c("pro_army", "anti_army")) |>
+  group_by(dictionary, category, source, stance) |>
+  summarise(count = sum(count), n_tokens = sum(n_tokens), .groups = "drop") |>
+  mutate(rate = count / n_tokens * 1000)
+
+ggplot(res_cell, aes(rate, category, fill = stance)) +
+  geom_col(position = "dodge") +
+  facet_grid(dictionary ~ source, scales = "free_y", space = "free_y") +
+  labs(x = "1000語あたりの出現数", y = NULL, fill = NULL)
+
+df_long |>
+  filter(stance %in% c("pro_army", "anti_army")) |>
+  ggplot(aes(category, per_1000, colour = stance)) +
+  geom_point(position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.7),
+             alpha = 0.7) +
+  stat_summary(aes(group = stance), fun = median, fun.min = median, fun.max = median,
+               geom = "crossbar", width = 0.5, linewidth = 0.3,
+               position = position_dodge(width = 0.7), show.legend = FALSE) +
+  facet_grid(dictionary ~ source, scales = "free_x", space = "free_x") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = NULL, y = "1000語あたりの出現数", colour = NULL)
+
+# ---- 5. source ごとに、どの語がカテゴリを支えているか ----
+dfm_src <- dfm(tok_dict) |> dfm_group(groups = docvars(tok_dict, src_var))
+
+top_words_src <- imap_dfr(dicts, \(d, nm) {
+  imap_dfr(as.list(d), \(pat, cat) {
+    x <- dfm_select(dfm_src, pattern = pat, valuetype = "glob")
+    if (nfeat(x) == 0) return(tibble())
+    convert(x, to = "data.frame") |>
+      as_tibble() |>
+      pivot_longer(-doc_id, names_to = "feature", values_to = "frequency") |>
+      filter(frequency > 0) |>
+      transmute(dictionary = nm, category = cat, source = doc_id, feature, frequency)
+  })
+})
+
+top_words_src |>
+  group_by(dictionary, category, source) |>
+  slice_max(frequency, n = 5, with_ties = FALSE) |>
+  ungroup() |>
+  print(n = Inf)
+```
+```{r}
+
+plot_dict <- function(dict_name, ncol = 4, drop = character(),
+                      title = NULL, fig_no = NULL) {
+  lv <- c("gm pro", "gm anti", "lm pro", "lm anti")
+
+  d <- df_long |>
+    filter(dictionary == dict_name,
+           stance %in% c("pro_army", "anti_army"),
+           !category %in% drop) |>
+    mutate(
+      group    = factor(paste(source, if_else(stance == "pro_army", "pro", "anti")), levels = lv),
+      category = fct_reorder(category, per_1000, .fun = mean, .desc = TRUE)
+    )
+
+  # "Fig.1. ..." の形に組み立てる
+  ttl <- if (is.null(title)) NULL else
+    str_wrap(paste0(if (!is.null(fig_no)) paste0("Fig.", fig_no, ". "), title), width = 90)
+
+  ggplot(d, aes(group, per_1000, colour = stance)) +
+    geom_vline(xintercept = 2.5, linetype = "dotted", colour = "grey60") +
+    geom_jitter(width = 0.12, height = 0, alpha = 0.7, size = 1.8) +
+    stat_summary(fun = median, geom = "point", shape = 18, size = 4, colour = "black") +
+    facet_wrap(~ category, scales = "free_y", ncol = ncol,
+               labeller = label_wrap_gen(22)) +
+    scale_colour_manual(values = c(pro_army = "#d95f02", anti_army = "#1b9e77")) +
+    labs(
+      title  = ttl,
+      x      = NULL,
+      y      = "normalized frequency (per 1,000 words)",
+      colour = NULL
+    ) +
+    theme(plot.title = element_text(hjust = 0),
+          plot.title.position = "plot")   # タイトルをパネルでなく図全体の左端に揃える
+}
+
+
+p_pol <- plot_dict("political", ncol = 3, fig_no = 4,
+                   title = "Political Vocabulary in GM and LM Speeches for and against Standing Armies")
+
+p_rhe <- plot_dict("rhetoric", ncol = 4, fig_no = 5,
+                   title = "Rhetorical Vocabulary in GM and LM Speeches for and against Standing Armies")
+
+# 保存
+ggsave("img/fig_arimty_political.svg", p_pol,
+       device = "svg", width = 300, height = 170, units = "mm")
+
+ggsave("img/fig_arimty_rhetoric.svg", p_rhe,
+       device = "svg", width = 230, height = 100, units = "mm")
+
+```
+
+
+```{r}
+# 図と同じ条件で、群 × カテゴリの要約表を作る
+summarise_dict <- function(dict_name, drop = character()) {
+  df_long |>
+    filter(dictionary == dict_name,
+           stance %in% c("pro_army", "anti_army"),
+           !category %in% drop) |>
+    mutate(group = factor(paste(source, if_else(stance == "pro_army", "pro", "anti")),
+                          levels = c("gm pro", "gm anti", "lm pro", "lm anti"))) |>
+    group_by(category, group) |>
+    summarise(
+      n_docs = n(),
+      n_zero = sum(count == 0),                       # 0件の文書数
+      median = median(per_1000, na.rm = TRUE),
+      mean   = mean(per_1000, na.rm = TRUE),
+      min    = min(per_1000, na.rm = TRUE),
+      max    = max(per_1000, na.rm = TRUE),
+      pooled = sum(count) / sum(n_tokens) * 1000,     # 群全体の1000語あたり
+      .groups = "drop"
+    ) |>
+    mutate(across(c(median, mean, min, max, pooled), \(x) round(x, 2)))
+}
+
+tab_pol <- summarise_dict("political")
+tab_rhe <- summarise_dict("rhetoric", drop = "rhetorical_expression")
+
+# コンソールに全行・全列を表示
+tab_pol |> print(n = Inf, width = Inf)
+tab_rhe |> print(n = Inf, width = Inf)
+```
+
+
+```{r}
+df_long |>
+  filter(dictionary == "political", stance %in% c("pro_army", "anti_army")) |>
+  group_by(category) |>
+  slice_max(per_1000, n = 3, with_ties = FALSE) |>
+  ungroup() |>
+  transmute(category, doc_id, source, stance, n_tokens, count, per_1000 = round(per_1000, 1)) |>
+  print(n = Inf, width = Inf)
+```
+
+
+```{r}
+docvars(tok_dict, "grp") <- paste(docvars(tok_dict, src_var), docvars(tok_dict, pos_var), sep = "_")
+dfm_grp <- dfm(tok_dict) |> dfm_group(groups = docvars(tok_dict, "grp"))
+n_grp   <- ntoken(dfm_grp)
+
+words_grp <- imap_dfr(as.list(dict_pol), \(pat, cat) {
+  x <- dfm_select(dfm_grp, pattern = pat, valuetype = "glob")
+  if (nfeat(x) == 0) return(tibble())
+  convert(x, to = "data.frame") |>
+    as_tibble() |>
+    pivot_longer(-doc_id, names_to = "feature", values_to = "count") |>
+    mutate(category = cat, grp = doc_id, per_1000 = count / n_grp[doc_id] * 1000)
+})
+
+words_grp |>
+  filter(category %in% c("people_and_public_good", "foreign_affairs",
+                         "constitution_and_law", "crown_ministry_party")) |>
+  group_by(category, feature) |>
+  filter(sum(count) >= 10) |>
+  ungroup() |>
+  mutate(per_1000 = round(per_1000, 2)) |>
+  select(category, feature, grp, per_1000) |>
+  pivot_wider(names_from = grp, values_from = per_1000, values_fill = 0) |>
+  arrange(category, desc(gm_anti_army)) |>
+  print(n = Inf, width = Inf)
+```
+
+
+
+
+```{r}
+# 雑誌間: gm vs lm
+key_mag <- run_keyness(dfm_raw, "source_1", "gm", "lm")
+
+# 立場間（雑誌をまとめる）: G2 が正 = 擁護側の特徴語
+key_stance <- run_keyness(dfm_raw, "stance_on_army", "pro_army", "anti_army")
+
+# 雑誌ごとに立場を比べる
+key_stance_gm <- dfm_raw |>
+  dfm_subset(source_1 == "gm") |>
+  run_keyness("stance_on_army", "pro_army", "anti_army")
+```
+
+```{r}
+key_stance |> slice_max(G2, n = 15)   # target 側（pro_army）
+key_stance |> slice_min(G2, n = 15)   # reference 側（anti_army）
+key_stance |> filter(p_adj < 0.05)    # 補正後に残る語
+```
+
+
+```{r}
+
+d   <- dfm_subset(dfm_raw, source_1 %in% c("gm", "lm")) |>
+  dfm_trim(min_termfreq = 10)
+tgt <- docvars(d, "source_1") == "gm"
+
+disp <- tibble(
+  feature = featnames(d),
+  df_gm   = as.numeric(docfreq(d[tgt, ])),
+  df_lm   = as.numeric(docfreq(d[!tgt, ]))
+)
+
+key_mag |> left_join(disp, by = "feature")
+```
+
+```{r}
+
+keyness_lm_gm <-
+  textstat_keyness(
+    dfm_raw,
+    target = docvars(dfm_raw)$source_1 == "lm"
+  )
+
+head(keyness_lm_gm, 30)
+
+```
+
+## keyness
+
+### GM
+
+```{r}
+
+key_gm <-
+  dfm_raw |>
+  dfm_subset(source_1 == "gm") |>
+  run_keyness("stance_on_army", "pro_army", "anti_army")
+
+key_plot <-
+  key_gm |>
+  mutate(group = if_else(G2 > 0, "pro_army", "anti_army")) |>
+  group_by(group) |>
+  slice_max(abs(G2), n = 15) |>
+  ungroup() |>
+  mutate(
+    score = abs(G2),
+    group = factor(
+      group,
+      levels = c("pro_army", "anti_army"),
+      labels = c("Defended standing armies", "Supported the reduction")
+    )
+  )
+
+p1 <-
+  key_plot |>
+  ggplot(aes(x = score, y = reorder_within(feature, score, group))) +
+  geom_col(color = "black", linewidth = 0.3) +
+  scale_y_reordered() +
+  facet_wrap(~ group, scales = "free_y") +
+  labs(
+    title = "Fig.1. Key Terms in GM Speeches for and against Standing Armies",
+    x = "Log-likelihood ratio (G2)",
+    y = NULL
+  )
+
+ggsave(
+  "img/keyness_compare_gm_standingarmy.svg",
+  device = "svg",
+  plot = p1,
+  # width = 90, #2段組
+  # height = 60,
+  width = 170, #1段組
+  height = 90,
+  units = "mm",
+  dpi = 600
+)
+
+
+```
+
+
+### LM
+
+```{r}
+
+key_gm <-
+  dfm_raw |>
+  dfm_subset(source_1 == "lm") |>
+  run_keyness("stance_on_army", "pro_army", "anti_army")
+
+key_plot <-
+  key_gm |>
+  mutate(group = if_else(G2 > 0, "pro_army", "anti_army")) |>
+  group_by(group) |>
+  slice_max(abs(G2), n = 15) |>
+  ungroup() |>
+  mutate(
+    score = abs(G2),
+    group = factor(
+      group,
+      levels = c("pro_army", "anti_army"),
+      labels = c("Defended standing armies", "Supported the reduction")
+    )
+  )
+
+p1 <-
+  key_plot |>
+  ggplot(aes(x = score, y = reorder_within(feature, score, group))) +
+  geom_col(color = "black", linewidth = 0.3) +
+  scale_y_reordered() +
+  facet_wrap(~ group, scales = "free_y") +
+  labs(
+    title = "Fig.2. Key Terms in LM Speeches for and against Standing Armies",
+    x = "Log-likelihood ratio (G2)",
+    y = NULL
+  )
+
+ggsave(
+  "img/keyness_compare_lm_standingarmy.svg",
+  device = "svg",
+  plot = p1,
+  # width = 90, #2段組
+  # height = 60,
+  width = 170, #1段組
+  height = 90,
+  units = "mm",
+  dpi = 600
+)
+
+
+```
+
+
+```{r}
+
+# 群の構成（雑誌・院ごとの偏り）
+df_army |> count(source_1, stance_on_army)
+
+# 文書頻度（上位語が何文書に出ているか）
+d   <- dfm_trim(dfm_raw, min_termfreq = 10)
+tgt <- docvars(d, "stance_on_army") == "pro_army"
+disp <- tibble(
+  feature = featnames(d),
+  df_pro  = as.numeric(docfreq(d[tgt, ])),
+  df_anti = as.numeric(docfreq(d[!tgt, ]))
+)
+key |> left_join(disp, by = "feature") |> filter(p_adj < 0.4)   # key は今回の結果
+
+# 雑誌ごとに分けて、同じ語が出るか
+key_by_source <- map(set_names(c("gm", "lm")), \(s)
+  dfm_raw |> dfm_subset(source_1 == s) |>
+    run_keyness("stance_on_army", "pro_army", "anti_army"))
+
+# 用例（立場別）
+kwic(tok_base,
+     c("administration", "government", "corruption", "blefuscu", "subjects"),
+     window = 6) |>
+  as_tibble() |>
+  left_join(df_army |> select(doc_id, source_1, stance_on_army),
+            by = c("docname" = "doc_id")) |>
+  slice_sample(n = 8, by = c(pattern, stance_on_army))
+```
+
+
+```{r}
+docvars(dfm_raw) |> count(source_1, stance_on_army)
+```
+
+
+# 辞書分析
+
+## 辞書の調整
+
+```{r}
+
+# どの語がカテゴリを押し上げているかの確認
+
+dfm_all <- dfm(tok_dict)
+
+top_words <- imap_dfr(dicts, \(d, nm) {
+  imap_dfr(as.list(d), \(pat, cat) {
+    x <- dfm_select(dfm_all, pattern = pat, valuetype = "glob")
+    if (nfeat(x) == 0) return(tibble())
+    textstat_frequency(x) |>
+      as_tibble() |>
+      transmute(dictionary = nm, category = cat, feature, frequency, docfreq)
+  })
+})
+
+top_words |>
+  group_by(dictionary, category) |>
+  mutate(share = frequency / sum(frequency)) |>
+  slice_max(frequency, n = 5, with_ties = FALSE) |>
+  ungroup() |>
+  print(n = 100)
+
+```
+
+
+```{r}
+
+set.seed(1)
+
+kwic(tok_base,
+     c("court", "emperor*", "good", "fame", "reputation*",
+       "interest", "establishment", "right*", "just"),
+     window = 5) |>
+  as_tibble() |>
+  group_by(pattern) |>
+  slice_sample(n = 15) |>
+  ungroup() |>
+  select(pattern, pre, keyword, post) |>
+  print(n = Inf)
+
+nrow(kwic(tok_base, phrase(c("time of peace", "times of peace"))))
+
+```
+
+```{r}
+
+chk <- c("country", "house", "minister*", "opinion", "reason", "fame")
+
+kwic(tok_base, pattern = chk, window = 5) |>
+  as_tibble() |>
+  group_by(pattern) |>
+  slice_sample(n = 15) |>
+  ungroup() |>
+  select(pattern, pre, keyword, post) |>
+  print(n = Inf)
+
+```

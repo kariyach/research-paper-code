@@ -1,0 +1,123 @@
+# 憲法・自由・権利・法・先例
+constitution_and_law:
+  - constitution*
+  - just
+  - justice*
+  - right*
+  - libert*
+  - free
+  - freedom*
+  - law
+  - laws
+  - lawful*
+  - legal*
+  - duty
+  - duties
+  - obligation*
+  - virtue*
+  - precedent*
+  - unprecedent*
+  - practice*
+  - practis*             # 旧綴り（practised）
+  - usage*
+  - custom
+  - customary
+  - ancient*
+  - antient*
+  - establish
+  - established
+  - maxim*
+  - immemorial
+  - inherit*
+  - history
+  - histories
+  - successor*
+
+# 議会・手続き
+parliament_and_procedure:
+  - parliament*
+  - senate*              # 仮名版（gm）
+  - house
+  - address*
+  - impeach*
+  - attainder*
+  - motion*
+  - question*
+  - procedure*
+  - proceeding*
+  - petition*
+
+# 王権・大臣・宮廷・党派
+crown_ministry_party:
+  - king
+  - kings
+  - emperor*
+  - crown*
+  - throne
+  - majesty*
+  - minist*
+  - administration*
+  - court
+  - courts
+  - party
+  - parties
+  - faction*
+  - whig*
+  - tory
+  - tories
+  - "landed interest"
+  - "moneyed interest"
+
+# 人民・国家・公共善
+people_and_public_good:
+  - people
+  - nation*
+  - countr*
+  - public
+  - publick*             # publick, publickly
+  - publicly
+  - common
+  - commonwealth*
+  - welfare
+  - prosper*
+  - securit*
+  - safety
+  - patriot*
+
+# 外交・戦争
+foreign_affairs:
+  - france
+  - spain
+  - austria*
+  - vienna
+  - blefuscu*            # 仮名版
+  - allemannu*           # 仮名版
+  - treaty
+  - treaties
+  - alliance*
+  - war
+  - wars
+  - peace*
+  - enem*
+  - europ*
+  - foreign*
+  - negotiat*
+  - negociat*            # 旧綴り（確認済み）
+
+# 財政・商業
+finance_and_commerce:
+  - trade*
+  - traffick*            # 旧綴り（確認済み）
+  - commerc*
+  - merchant*
+  - manufactur*
+  - revenue*
+  - tax*
+  - excise*
+  - debt*
+  - money*
+  - treasur*
+  - financ*
+  - credit*
+  - customs              # 関税の意味。要KWIC
+
