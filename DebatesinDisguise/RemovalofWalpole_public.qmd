@@ -1,0 +1,528 @@
+---
+title: "Debates in Disguise"
+subtitle: "Removal of Walpole"
+title-block-banner: true
+author:
+  - name: Chihiro Kariya
+    orcid: 0009-0008-3085-947X
+    degrees: PhD
+institute: Kanazawa University
+
+# date
+date: 4, Nov 2026
+date-modified: 6, Nov 2026
+
+# format
+format:
+  html:
+    toc: true
+    cap-location: bottom
+    page-layout: full
+    anchor-sections: true
+    smooth-scroll: true
+    urlcolor: SteelBlue
+    citecolor: SteelBlue
+    toccolor: SteelBlue
+
+
+# link
+    link-external-newwindow: true
+    link-external-icon: true
+
+execute:
+  freeze: auto
+  echo: false
+  warning: false
+
+---
+
+
+```{r}
+#| label: setup
+#| echo: false
+#| output: false
+
+# パッケージの読み込み -----
+## データ操作 -----
+library(tidyverse)
+library(janitor)
+
+## データ入出力 -----
+library(arrow)
+library(fs)
+
+## グラフ描画（フォント対策）  -----
+library(showtext)
+library(ragg)
+
+## ggplot
+library(scales)
+library(paletteer)
+
+
+## データ確認・要約 -----
+library(skimr)
+
+## 量的テキスト分析 -----
+library(quanteda)
+library(quanteda.textstats)
+library(quanteda.textplots)
+library(tidytext)
+
+## 名前衝突対応 -----
+library(conflicted)
+
+
+# ggplotのデフォルトテーマ（全プロットに適用） ----
+ggplot2::theme_set(
+  theme_classic() +
+     theme_sub_legend(position   = "bottom") +
+    theme_sub_axis_bottom(
+      title = element_text(size = 11, margin = margin(t = 8)),
+      text  = element_text(size = 8.5)
+    ) +
+    theme_sub_axis_left(
+      title = element_text(size = 11, margin = margin(r = 8)),
+      text  = element_text(size = 11, hjust = 0)
+    ) +
+    theme_sub_legend(
+      position   = "bottom",
+      margin     = margin(t = -4),
+      key.size   = unit(3.5, "mm")
+    ) +
+    theme_sub_plot(
+      title   = element_text(size = 11),
+      caption = element_text(size = 9)
+    )
+)
+
+# 日本語フォント ----
+font_add(
+  "jp",
+  "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc"
+)
+
+showtext_auto()
+
+# 優先する関数を指定 ----
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(purrr::map)
+conflicts_prefer(purrr::compact())
+conflicts_prefer(quanteda::dictionary)
+
+# データの読み込み ----
+
+obj <- readRDS("prep/prep_RemovalofWalpole.rds")
+
+df_removal  <- obj$df
+corp     <- obj$corp
+dfm_raw  <- obj$dfm_raw
+dfm_stem <- obj$dfm_stem
+tok_base <- obj$tok_base   # KWIC 用
+tok_pad  <- obj$tok_pad    # collocation 用
+
+
+# 辞書の読み込み ----
+
+dict_pol <- dictionary(file = "dictionaries/political_vocabulary.yml")
+dict_rhe <- dictionary(file = "dictionaries/rhetoric.yml")
+dicts    <- list(political = dict_pol, rhetoric = dict_rhe)
+
+# 前処理 ----
+
+src_var <- "source_1"
+pos_var <- "stance_on_motion"
+
+group_key <- function(x, by = c(src_var, pos_var)) {
+  dv   <- docvars(x)
+  miss <- setdiff(by, names(dv))
+  if (length(miss) > 0) {
+    stop("docvars に列がありません: ", paste(miss, collapse = ", "),
+         "\n利用できる列: ", paste(names(dv), collapse = ", "), call. = FALSE)
+  }
+  do.call(paste, c(as.list(dv[by]), sep = "_"))
+}
+
+split_by_group <- function(x, subset_fn, by = c(src_var, pos_var)) {
+  grp <- group_key(x, by)
+  map(set_names(unique(grp)), \(g) subset_fn(x, subset = grp == g))
+}
+
+dfm_by  <- split_by_group(dfm_raw,  dfm_subset)
+tok_by  <- split_by_group(tok_base, tokens_subset)
+corp_by <- split_by_group(corp,     corpus_subset)
+
+# dfm_by$gm_for
+# tok_by$lm_against
+# corp_by$gm_for
+
+run_keyness <- function(dfm_x, var, target, reference = NULL,
+                        min_termfreq = 10, measure = "lr") {
+  g <- docvars(dfm_x, var)
+
+  if (!is.null(reference)) {
+    dfm_x <- dfm_x[g %in% c(target, reference), ]
+    g <- docvars(dfm_x, var)
+  }
+
+  dfm_x <- dfm_trim(dfm_x, min_termfreq = min_termfreq)
+
+  textstat_keyness(dfm_x, target = g == target, measure = measure) |>
+    as_tibble() |>
+    mutate(p_adj = p.adjust(p, method = "BH"))
+}
+
+
+
+## 辞書用tokens（ストップワードを除去しない）----
+
+tok_dict <- tok_base |>
+  tokens_compound(phrase(c("for this reason", "for the reason", "for these reasons",
+                           "for which reason", "time of peace", "times of peace")),
+                  concatenator = "_") |>
+  tokens_compound(phrase(c("right honourable", "right honorable", "right hon")),
+                  concatenator = "_") |> 
+  tokens_compound(
+    phrase(c("time of peace", "times of peace")),
+    concatenator = "_"
+  ) |> 
+  tokens(remove_punct = TRUE, remove_symbols = TRUE, remove_numbers = TRUE) |>
+  tokens_tolower()
+
+
+## check
+
+# --- データ整形 chunk ---
+tok_dict <- tok_base   # 必要なら tokens_compound を足す
+
+n_pseudo <- tokens_select(tok_dict, c("lilliput*", "blefuscu*", "senate*")) |> ntoken()
+
+docvars(tok_dict, "pseudonym") <- n_pseudo > 0
+
+n_tok <- tibble(
+  doc_id    = docnames(tok_dict),
+  n_tokens  = as.numeric(ntoken(tok_dict)),
+  source    = as.character(docvars(tok_dict, src_var)),
+  stance    = docvars(tok_dict, pos_var),
+  pseudonym = ntoken(tokens_select(tok_dict, c("lilliput*", "blefuscu*", "senate*"))) > 0
+)
+
+df_long <- imap_dfr(dicts, \(d, nm) {
+  convert(dfm(tokens_lookup(tok_dict, d)), to = "data.frame") |>
+    as_tibble() |>
+    pivot_longer(-doc_id, names_to = "category", values_to = "count") |>
+    mutate(dictionary = nm)
+}) |>
+  left_join(n_tok, by = "doc_id") |>
+  mutate(per_1000 = if_else(n_tokens > 0, count / n_tokens * 1000, NA_real_))
+
+stopifnot(!anyNA(df_long$source), !anyNA(df_long$stance))
+
+# 文書単位の比較（Wilcoxon）
+res_doc <- df_long |>
+  filter(stance %in% c("for", "against")) |>
+  group_by(dictionary, category) |>
+  summarise(
+    median_for     = median(per_1000[stance == "for"],     na.rm = TRUE),
+    median_against = median(per_1000[stance == "against"], na.rm = TRUE),
+    p_wilcox = suppressWarnings(
+      wilcox.test(per_1000[stance == "for"], per_1000[stance == "against"],
+                  exact = FALSE)$p.value),
+    .groups = "drop"
+  ) |>
+  mutate(p_adj = p.adjust(p_wilcox, method = "holm"))
+
+table(docvars(tok_dict, "pseudonym"), docvars(tok_dict, pos_var))
+
+dfm_all <- dfm(tok_dict)
+
+meta_spk <- tibble(doc_id = docnames(tok_dict), speaker = docvars(tok_dict, "speaker_disguised_name"))
+
+stance_lab <- c("for" = "pro-removal", "against" = "anti-removal")
+
+stopifnot(
+  identical(docnames(dfm_all), docnames(tok_dict)),
+  identical(docnames(corp),    docnames(tok_dict))
+)
+
+```
+
+# count
+
+## tok_count
+
+```{r}
+
+tok_count <- function(x, name) {
+  tibble(doc_id = docnames(x), !!name := as.numeric(ntoken(x)))
+}
+
+meta <- tibble(
+  doc_id = docnames(tok_dict),
+  source = as.character(docvars(tok_dict, src_var)),
+  stance = docvars(tok_dict, pos_var)
+)
+
+tab_tok <- tok_count(tok_base, "tok_base") |>
+  left_join(tok_count(tok_dict, "tok_dict"), by = "doc_id") |>
+  left_join(tok_count(dfm_raw, "dfm_raw"), by = "doc_id") |>
+  left_join(meta, by = "doc_id")
+
+tab_tok |>
+  group_by(source, stance) |>
+  summarise(
+    n_speeches = n(),
+    across(c(tok_base, tok_dict, dfm_raw), sum),
+    .groups = "drop"
+  ) |>
+  arrange(source, stance)
+
+```
+
+## speaker
+
+
+```{r}
+df_removal |> 
+  group_by(source_1, stance_on_agenda) |>
+  summarise(
+    n_speeches = n(),
+    n_speakers = n_distinct(speaker_disguised_name, na.rm = TRUE),
+    n_na_name  = sum(is.na(speaker_disguised_name)),
+    .groups = "drop"
+  )
+```
+
+
+# dictionary
+
+## plot
+
+```{r}
+
+plot_dict <- function(dict_name, ncol = 3, drop = character(),
+                       title = NULL, fig_no = NULL) {
+  lv  <- c("gm for", "gm against", "lm for", "lm against")
+  lab <- c("gm\npro-\nremoval", "gm\nanti-\nremoval",
+           "lm\npro-\nremoval", "lm\nanti-\nremoval")
+
+  d <- df_long |>
+    filter(dictionary == dict_name, stance %in% names(stance_lab), !category %in% drop) |>
+    mutate(
+      grp      = factor(paste(source, stance), levels = lv, labels = lab),
+      category = fct_reorder(category, per_1000, .fun = mean, .desc = TRUE)
+    )
+
+  ttl <- if (is.null(title)) NULL else
+    str_wrap(paste0(if (!is.null(fig_no)) paste0("Fig.", fig_no, ". "), title), width = 90)
+
+  ggplot(d, aes(grp, per_1000,
+                colour = stance,
+                shape = stance)) +
+    geom_vline(xintercept = 2.5,
+               linetype = "dotted",
+               colour = "grey60") +
+    geom_jitter(width = 0.12,
+                height = 0,
+                alpha = 0.7,
+                size = 1.8) +
+    stat_summary(fun = median,
+                 geom = "point",
+                 shape = 18,
+                 size = 3.5,
+                 colour = "#009900FF",
+                 alpha = 0.8,
+                 show.legend = FALSE) +
+    facet_wrap(~ category,
+               scales = "free_y",
+               ncol = ncol,
+               labeller = label_wrap_gen(22)) +
+    scale_x_discrete(drop = FALSE) +
+    scale_colour_paletteer_d("nbapalettes::sixers_retro",
+                             labels = stance_lab) + 
+    scale_shape_manual(values = c("for" = 16,
+                                  "against" = 17),
+                       labels = stance_lab) +
+    labs(
+      title  = ttl,
+      x      = NULL,
+      y      = "normalized frequency (per 1,000 words)",
+      colour = NULL,
+      shape = NULL,
+      caption = "Green diamonds indicate the median of each group."
+    ) 
+}
+
+p_pol <- plot_dict("political",
+                   ncol = 3,
+                   fig_no = 5,
+                   title = "Political Vocabulary in GM and LM Speeches for and against Removal of Walpole")
+
+p_rhe <- plot_dict("rhetoric",
+                   ncol = 4,
+                   fig_no = 6,
+                   title = "Rhetorical Vocabulary in GM and LM Speeches for and against Removal of Walpole")
+
+p_pol
+p_rhe
+
+# ggsave("img/dict_removal_political.svg",
+#        p_pol,
+#        device = "svg",
+#        width = 300,
+#        height = 170,
+#        units = "mm")
+# 
+# ggsave("img/dict_removal_rhetoric.svg",
+#        p_rhe,
+#        device = "svg",
+#        width = 230,
+#        height = 100,
+#        units = "mm")
+
+```
+
+## share
+
+```{r}
+
+grp_lab <- c("gm for"     = "GM\nPro-removal",
+             "gm against" = "GM\nAnti-removal",
+             "lm for"     = "LM\nPro-removal",
+             "lm against" = "LM\nAnti-removal")
+
+cat_levels <- c("foreign_affairs", "crown_ministry_party", "parliament_and_procedure",
+                "constitution_and_law", "people_and_public_good",
+                "finance_and_commerce", "threats_to_liberty")
+
+share_tbl <- df_long |>
+  filter(dictionary == "political", stance %in% c("for", "against")) |>
+  group_by(source, stance, category) |>
+  summarise(count = sum(count), .groups = "drop") |>
+  group_by(source, stance) |>
+  mutate(share = count / sum(count)) |>
+  ungroup() |>
+  mutate(
+    grp      = factor(paste(source, stance), levels = names(grp_lab), labels = unname(grp_lab)),
+    category = factor(category, levels = cat_levels)
+  )
+
+p_share <- ggplot(share_tbl, aes(share, fct_rev(grp), fill = category)) +
+  geom_col(position = position_fill(reverse = TRUE), colour = "white", linewidth = 0.3) +
+  geom_text(
+    aes(label = if_else(share >= 0.08, percent(share, accuracy = 1), ""),
+        group = category),
+    position = position_fill(vjust = 0.5, reverse = TRUE),
+    size = 7, colour = "white"
+  ) +
+  scale_x_continuous(labels = percent, expand = c(0, 0)) +
+  scale_fill_paletteer_d("MetBrewer::Austria") + 
+  labs(x = "Share of dictionary hits",
+       y = NULL,
+       fill = NULL,
+       title = "Fig.8. Relative Frequency of Political Vocabulary in GM and LM Speeches on Removal of Walpole")
+
+p_share
+
+# ggsave("img/dict_share_removal_political.svg",
+#        p_share,
+#        device = "svg",
+#        width = 300,
+#        height = 170,
+#        units = "mm")
+
+
+```
+
+## per 1000
+
+```{r}
+
+tok_tbl <- n_tok |>
+  filter(stance %in% c("for", "against")) |>
+  group_by(source, stance) |>
+  summarise(tokens = sum(n_tokens), .groups = "drop")
+
+rate_tbl <- share_tbl |>
+  left_join(tok_tbl, by = c("source", "stance")) |>
+  mutate(rate = count / tokens * 1000)
+
+p_rate <- ggplot(rate_tbl, aes(rate, fct_rev(grp), fill = category)) +
+  geom_col(position = position_stack(reverse = TRUE), colour = "white", linewidth = 0.3) +
+  # scale_fill_manual(values = cat_cols) +
+  scale_fill_paletteer_d("MetBrewer::Austria") + 
+  labs(x = "Dictionary hits per 1,000 words",
+       y = NULL,
+       fill = NULL,
+       title = "Fig.7. Political Vocabulary per 1,000 Words in GM and LM Speeches on Removal of Walpole")
+
+p_rate
+
+# ggsave("img/dict_per1000_removal_political.svg",
+#        p_rate,
+#        device = "svg",
+#        width = 300,
+#        height = 170,
+#        units = "mm")
+
+```
+
+
+# keyness
+
+## plot
+
+```{r}
+
+key_gm <- dfm_raw |> dfm_subset(source_1 == "gm") |> run_keyness(pos_var, "for", "against")
+key_lm <- dfm_raw |> dfm_subset(source_1 == "lm") |> run_keyness(pos_var, "for", "against")
+
+make_key_plot <- function(key, label, fig_no, n = 15) {
+  d <- key |>
+    mutate(
+      group = if_else(G2 > 0, "for", "against"),
+      sig = case_when(
+        p_adj < 0.05 ~ "Adjusted p < .05",
+        p     < 0.05 ~ "Unadjusted p < .05 only",
+        TRUE         ~ "Not significant"
+      ),
+      sig = factor(sig, levels = c("Adjusted p < .05", "Unadjusted p < .05 only", "Not significant"))
+    ) |>
+    group_by(group) |>
+    slice_max(abs(G2), n = n, with_ties = FALSE) |>
+    ungroup() |>
+    mutate(
+      score = abs(G2),
+      group = factor(group, levels = c("for", "against"),
+                     labels = c("Supporting Removal of Walpole", "Opposing Removal of Walpole"))
+    )
+
+  ggplot(d, aes(score, reorder_within(feature, score, group), fill = sig)) +
+    geom_col(color = "black", linewidth = 0.3) +
+    scale_y_reordered() +
+    scale_fill_manual(values = c("Adjusted p < .05"        = "grey20",
+                                 "Unadjusted p < .05 only" = "grey60",
+                                 "Not significant"         = "grey90"),
+                      drop = FALSE) +
+    facet_wrap(~ group, scales = "free_y") +
+    labs(
+      title = paste0("Fig.", fig_no, ". Terms Ranked by Keyness in ", label,
+                     " Speeches for and against Removal"),
+      x = "Log-likelihood ratio (G2)", y = NULL, fill = NULL
+    ) 
+}
+
+p_gm <- make_key_plot(key_gm, "GM", 7)
+p_lm <- make_key_plot(key_lm, "LM", 8)
+
+p_gm
+p_lm
+
+# ggsave("img/keyness_gm_removal.svg", p_gm,
+#        device = "svg", width = 170, height = 90, units = "mm")
+# 
+# ggsave("img/keyness_lm_removal.svg", p_lm,
+#        device = "svg", width = 170, height = 90, units = "mm")
+
+```
+

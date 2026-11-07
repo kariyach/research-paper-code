@@ -1,0 +1,152 @@
+# 憲法・自由・権利・法・先例
+constitution_and_law:
+  - constitution*
+  - just
+  - justice*
+  - right*
+  - libert*
+  - free
+  - freedom*
+  - mixture*
+  - law*
+  - legal*
+  - duty
+  - duties
+  - obligation*
+  - virtue*
+  - "*precedent*"
+  - practice*
+  - practis*
+  - usage*
+  - custom
+  - customary
+  - an?ient*
+  - establish
+  - established
+  - maxim*
+  - immemorial
+  - inherit*
+  - histor*
+  - successor*
+
+# 自由への脅威
+threats_to_liberty:
+  - tyran*
+  - arbitrar*
+  - despot*
+  - "*slave*"
+  - oppress*
+  - usurp*
+  - encroach*
+  - infring*
+  - infraction*
+  - subvert*
+
+# 議会・手続き
+parliament_and_procedure:
+  - parliament*
+  - senat*
+  - house
+  - houses
+  - address*
+  - impeach*
+  - attainder*
+  - motion*
+  - question*
+  - procedure*
+  - proceeding*
+  - petition*
+
+# 王権・大臣・宮廷・党派
+crown_ministry_party:
+  - "Prime Minister"
+  - king
+  - kings
+  - emperor*
+  - crown*
+  - throne
+  - majesty*
+  - minist*
+  - administration*
+  - court
+  - courts
+  - party
+  - parties
+  - faction*
+  - whig*
+  - tory
+  - tories
+  - slamec*          # GM whig
+  - tramec*          # GM tory
+  - "landed interest"
+  - "moneyed interest"
+
+# 人民・国家・公共善
+people_and_public_good:
+  - people*
+  - nation*
+  - countr*
+  - public
+  - publick*             # publick, publickly
+  - publicly
+  - common
+  - commonwealth*
+  - welfare
+  - prosper*
+  - securit*
+  - safety
+  - patriot*
+
+# 外交・戦争
+foreign_affairs:
+  - france
+  - french
+  - spain
+  - spanish
+  - holland
+  - dutch
+  - austria*
+  - vienna
+  - america*
+  - degulia*            # GM europe
+  - iberia*             # GM spain
+  - blefuscu*           # GM france
+  - allemannu*
+  - columbia            # GM america
+  - treaty
+  - treaties
+  - alliance*
+  - war
+  - wars
+  - peace*
+  - enem*
+  - europ*
+  - foreign*
+  - nego?iat*
+
+# 財政・商業
+finance_and_commerce:
+  - trade*
+  - traffic*
+  - commerc*
+  - merchant*
+  - manufactur*
+  - revenue*
+  - expence
+  - tax*
+  - excise*
+  - debt*
+  - money*
+  - treasur*
+  - financ*
+  - credit*
+  - customs
+  - pound
+  - pounds
+  - sprug*         # GM pound
+  - sterling
+  - shilling*
+  - guinea*
+  - pence
+  - "public credit"
+

@@ -1,0 +1,52 @@
+argumentation:
+  - persua*
+  - convinc*
+  - argument*
+  - proof*
+  - evidence*
+  - prov*
+  - fact*
+
+reasoning:
+  - reason
+  - reasons
+  - reasoning
+  - infer*
+  - deduc*
+  - induc*
+
+rhetorical_critique:
+  - sophis*
+  - fallac*
+  - evasi*
+  - subterfuge*
+  - artifice
+  - artifices
+  - cunning
+  - crafty
+  - insinuat*
+  - false*
+  - untru*
+  - misrepresent*
+  - pretence*
+  - pretext*
+  - groundless
+  - imaginary
+  - vain
+  - vainly
+  - exaggerat*
+  - specious*
+  - plausib*
+  - disingenuous*
+  - mislead*
+  - misled
+  - decei*
+  - prevaricat*
+  - embellish*
+
+rhetorical_expression:
+  - rhetoric*
+  - declamation*
+  - eloquen*
+  - ornament*
+
